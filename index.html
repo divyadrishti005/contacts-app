@@ -222,6 +222,9 @@
     .main{ padding:18px; }
     table{ font-size:12.5px; }
   }
+  body.readonly #addBtn, body.readonly #emptyAddBtn, body.readonly .row-actions { display:none !important; }
+  #roleBadge { display:none; font-size:12px; padding:4px 10px; border-radius:999px; background:#EEF1F4; color:#4a5568; border:1px solid var(--line); }
+  body.readonly #roleBadge { display:inline-block; }
 </style>
 </head>
 <body>
@@ -260,6 +263,7 @@
         <input id="searchInput" type="text" placeholder="Search name, company, email…">
       </div>
       <div class="spacer"></div>
+      <span id="roleBadge">👁 View only</span>
       <button class="btn btn-sm" id="cloudBtn">☁ Sync</button>
       <button class="btn btn-accent" id="addBtn">+ Add contact</button>
     </div>
@@ -386,12 +390,12 @@
     </p>
     <div id="cloudHelp" style="display:none; font-size:12px; color:var(--ink-soft); background:#F7F6F0; border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:16px; line-height:1.7;">
       1. Open your Google Sheet → <b>Extensions → Apps Script</b>.<br>
-      2. Delete the default code, paste the contents of <code>Code.gs</code>, and change <code>SECRET</code> to your own password.<br>
+      2. Delete the default code, paste the contents of <code>Code.gs</code>, and set <code>EDITOR_KEY</code> and <code>VIEWER_KEY</code> to two different passwords.<br>
       3. Click <b>Deploy → New deployment → Web app</b>. Execute as: <b>Me</b>. Who has access: <b>Anyone</b>. Deploy and authorize once.<br>
-      4. Copy the <b>Web app URL</b> and paste it below with the same secret. Save — done.
+      4. Copy the <b>Web app URL</b> and paste it below with an access key. The <b>Editor key</b> allows changes; the <b>Viewer key</b> is view-only. Save — done.
     </div>
     <div class="field"><label>Web App URL</label><input id="cfg_url" placeholder="https://script.google.com/macros/s/.../exec"></div>
-    <div class="field"><label>Secret key</label><input id="cfg_secret" type="password" placeholder="same SECRET as in Code.gs"></div>
+    <div class="field"><label>Access key</label><input id="cfg_secret" type="password" placeholder="Editor key (can edit) or Viewer key (view only)"></div>
     <button class="btn btn-primary btn-sm" id="saveCloudConfig">Save &amp; connect</button>
 
     <div style="margin-top:22px;padding-top:18px;border-top:1px solid var(--line);">
@@ -434,6 +438,7 @@
   }
 
   function save(){
+    if(typeof gRole !== "undefined" && gRole === "viewer") return;
     try{
       localStorage.setItem(STORAGE_KEY, JSON.stringify(contacts));
       var el = document.getElementById("saveStatus");
@@ -661,13 +666,14 @@
     }
   });
 
-  document.getElementById("addBtn").addEventListener("click", function(){ openDrawer(null); });
-  document.getElementById("emptyAddBtn").addEventListener("click", function(){ openDrawer(null); });
+  document.getElementById("addBtn").addEventListener("click", function(){ if(!canEdit()) return; openDrawer(null); });
+  document.getElementById("emptyAddBtn").addEventListener("click", function(){ if(!canEdit()) return; openDrawer(null); });
   document.getElementById("closeDrawer").addEventListener("click", closeDrawer);
   document.getElementById("cancelBtn").addEventListener("click", closeDrawer);
   overlay.addEventListener("click", closeDrawer);
 
   document.getElementById("saveBtn").addEventListener("click", function(){
+    if(!canEdit()) return;
     var name = document.getElementById("f_name").value.trim();
     if(!name){ document.getElementById("f_name").focus(); toast("Name is required"); return; }
     var data = {
@@ -695,6 +701,7 @@
   });
 
   document.getElementById("deleteBtn").addEventListener("click", function(){
+    if(!canEdit()) return;
     if(!state.editingId) return;
     if(confirm("Delete this contact? This cannot be undone.")){
       contacts = contacts.filter(function(c){ return c.id !== state.editingId; });
@@ -704,8 +711,8 @@
   });
 
   document.getElementById("tableBody").addEventListener("click", function(e){
-    var editId = e.target.getAttribute("data-edit");
-    var delId = e.target.getAttribute("data-del");
+    var editId = canEdit() ? e.target.getAttribute("data-edit") : null;
+    var delId = canEdit() ? e.target.getAttribute("data-del") : null;
     if(editId){
       var c = contacts.find(function(x){ return x.id === editId; });
       if(c) openDrawer(c);
@@ -862,11 +869,13 @@
   // ---------- import ----------
   var importInput = document.getElementById("importFileInput");
   document.getElementById("importFileBtn").addEventListener("click", function(){
+    if(!canEdit()) return;
     importInput.value = "";
     importInput.click();
   });
 
   importInput.addEventListener("change", function(){
+    if(!canEdit()) return;
     var file = importInput.files[0];
     if(!file) return;
     var ext = file.name.split(".").pop().toLowerCase();
@@ -981,6 +990,19 @@
   var GCFG_KEY = "ledger_crm_gcfg_v2";
   var gcfg = { url:"", secret:"" };
   var pollTimer = null, pushTimer = null, gOk = false;
+  var gRole = null; // null = local only, "editor", or "viewer" (decided by the server from your key)
+  function canEdit(){
+    if(gRole === "viewer"){ toast("View-only access — you can't make changes"); return false; }
+    return true;
+  }
+  function applyRole(){
+    var viewer = gRole === "viewer";
+    document.body.classList.toggle("readonly", viewer);
+    var menu = document.getElementById("importBtn").closest(".io-menu");
+    if(menu) menu.style.display = viewer ? "none" : "";
+    document.getElementById("pushSheetBtn").style.display = viewer ? "none" : "";
+    if(viewer && drawer.classList.contains("open")) closeDrawer();
+  }
 
   function loadGCFG(){
     try{ var raw = localStorage.getItem(GCFG_KEY); if(raw) gcfg = Object.assign(gcfg, JSON.parse(raw)); }catch(e){}
@@ -1012,7 +1034,7 @@
     document.getElementById("pushSheetBtn").disabled = !on;
     document.getElementById("pullSheetBtn").disabled = !on;
     statusEl.textContent = msg || (!on ? "Paste your Web App URL and secret, then save."
-      : gOk ? "Connected — syncing automatically." : "Settings saved.");
+      : gOk ? (gRole === "viewer" ? "Connected — view only (refreshes automatically)." : "Connected — syncing automatically.") : "Settings saved.");
   }
 
   document.getElementById("saveCloudConfig").addEventListener("click", function(){
@@ -1031,7 +1053,7 @@
   function explainError(err){
     var m = (err && err.message) || "unknown error";
     if(/Failed to fetch|NetworkError/i.test(m)) return "can't reach the Web App URL — is it deployed with access set to 'Anyone'?";
-    if(/unauthorized/i.test(m)) return "secret key doesn't match the one in Code.gs";
+    if(/unauthorized/i.test(m)) return "access key doesn't match the Editor or Viewer key in Code.gs";
     return m;
   }
 
@@ -1050,12 +1072,14 @@
   }
 
   function schedulePush(){
+    if(gRole === "viewer") return;
     clearTimeout(pushTimer);
     pushTimer = setTimeout(function(){ pushToSheet(true); }, 800); // debounce rapid edits
   }
 
   function pushToSheet(silent){
     if(!gcfg.url){ if(!silent) toast("Add your Web App URL first"); return Promise.resolve(); }
+    if(gRole === "viewer") return Promise.resolve();
     var values = [SHEET_HEADERS];
     contacts.forEach(function(c){
       values.push(SHEET_COLUMNS.map(function(k){
@@ -1077,7 +1101,7 @@
   function pullFromSheet(silent){
     if(!gcfg.url){ if(!silent) toast("Add your Web App URL first"); return Promise.resolve(); }
     return callScript(null).then(function(data){
-      gOk = true; updateCloudStatusUI();
+      gOk = true; gRole = data.role || "editor"; applyRole(); updateCloudStatusUI();
       var rows = data.values || [];
       var pulled = rows.slice(1).filter(function(r){ return r && r[1]; }).map(function(r){
         var obj = {};
@@ -1087,7 +1111,11 @@
         return obj;
       });
       // empty sheet: never wipe local data — upload it instead
-      if(pulled.length === 0){ if(contacts.length) return pushToSheet(true); return; }
+      if(pulled.length === 0){
+        if(gRole === "viewer") return;
+        if(contacts.length) return pushToSheet(true);
+        return;
+      }
       if(JSON.stringify(pulled) !== JSON.stringify(contacts)){
         contacts = pulled;
         try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(contacts)); }catch(e){}
@@ -1103,7 +1131,7 @@
 
   document.getElementById("pushSheetBtn").addEventListener("click", function(){ pushToSheet(false); });
   document.getElementById("pullSheetBtn").addEventListener("click", function(){
-    if(confirm("Pull will replace what you see locally with the Sheet's current data. Continue?")) pullFromSheet(false);
+    if(gRole === "viewer" || confirm("Pull will replace what you see locally with the Sheet's current data. Continue?")) pullFromSheet(false);
   });
 
   function startPolling(){
