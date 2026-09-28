@@ -1,0 +1,1240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ledger — Local CRM</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  :root{
+    --ink:#22313F;
+    --ink-soft:#4A5A68;
+    --paper:#EEEFE9;
+    --paper-raised:#FFFFFF;
+    --line:#D6D7CC;
+    --line-soft:#E4E4DC;
+    --accent:#B98B2E;
+    --accent-ink:#5C4310;
+    --teal:#3F6E63;
+    --rust:#A6553C;
+    --slate:#6B7280;
+    --shadow: 0 1px 2px rgba(34,49,63,0.06), 0 4px 14px rgba(34,49,63,0.06);
+    font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+  }
+  .serif{ font-family: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, serif; }
+
+  /* ---------- layout ---------- */
+  .app{ display:flex; min-height:100vh; }
+  .sidebar{
+    width:250px; flex:none; background:var(--ink); color:#EFEDE3;
+    display:flex; flex-direction:column; padding:22px 18px;
+    position:sticky; top:0; height:100vh;
+  }
+  .brand{ display:flex; align-items:baseline; gap:8px; margin-bottom:4px; }
+  .brand-mark{ width:10px; height:10px; background:var(--accent); border-radius:2px; flex:none; }
+  .brand h1{ font-size:19px; margin:0; letter-spacing:0.2px; }
+  .brand-sub{ font-size:12px; color:#A9B3B9; margin:0 0 26px 18px; }
+
+  .stat-block{ margin-bottom:22px; padding-bottom:18px; border-bottom:1px solid rgba(255,255,255,0.1); }
+  .stat-row{ display:flex; justify-content:space-between; align-items:baseline; padding:5px 0; font-size:13px; color:#C7CDCF; }
+  .stat-row b{ font-family: Georgia, serif; font-size:16px; color:#fff; font-weight:600; }
+
+  .nav-label{ font-size:11px; color:#8C979C; margin:2px 0 8px 2px; }
+  .nav-item{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:8px 10px; border-radius:6px; cursor:pointer; font-size:13.5px;
+    color:#D8DDD6; margin-bottom:2px; border:1px solid transparent;
+  }
+  .nav-item:hover{ background:rgba(255,255,255,0.06); }
+  .nav-item.active{ background:rgba(185,139,46,0.18); border-color:rgba(185,139,46,0.4); color:#fff; }
+  .nav-item span.count{ color:#8C979C; font-size:12px; }
+  .nav-item.active span.count{ color:#E8C77C; }
+
+  .sidebar-foot{ margin-top:auto; font-size:11.5px; color:#8C979C; line-height:1.6; }
+  .save-dot{ display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--teal); margin-right:6px; }
+
+  .main{ flex:1; min-width:0; padding:28px 34px 60px; }
+
+  .topbar{ display:flex; align-items:center; gap:14px; margin-bottom:20px; flex-wrap:wrap; }
+  .topbar h2{ font-family:Georgia,serif; font-weight:600; font-size:24px; margin:0; flex:none; }
+  .search-wrap{ position:relative; flex:1; min-width:200px; max-width:340px; }
+  .search-wrap input{
+    width:100%; padding:9px 12px 9px 30px; border-radius:7px; border:1px solid var(--line);
+    background:var(--paper-raised); font-size:13.5px; color:var(--ink);
+  }
+  .search-wrap svg{ position:absolute; left:9px; top:50%; transform:translateY(-50%); opacity:0.45; }
+  .spacer{ flex:1; }
+
+  button{ font-family:inherit; cursor:pointer; }
+  .btn{
+    border:1px solid var(--line); background:var(--paper-raised); color:var(--ink);
+    padding:9px 14px; border-radius:7px; font-size:13.5px; font-weight:600;
+    display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+  }
+  .btn:hover{ border-color:#B7B9AB; }
+  .btn-primary{ background:var(--ink); color:#fff; border-color:var(--ink); }
+  .btn-primary:hover{ background:#2C3E50; }
+  .btn-accent{ background:var(--accent); border-color:var(--accent); color:#2A1F04; }
+  .btn-accent:hover{ background:#C79A3E; }
+  .btn-ghost{ background:transparent; border-color:transparent; color:var(--ink-soft); padding:6px 8px;}
+  .btn-ghost:hover{ background:var(--line-soft); }
+  .btn-sm{ padding:6px 10px; font-size:12.5px; }
+  .btn-danger-text{ color:var(--rust); }
+
+  .toolbar{ display:flex; align-items:center; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+  .chip{
+    padding:6px 12px; border-radius:20px; border:1px solid var(--line); font-size:12.5px;
+    background:var(--paper-raised); color:var(--ink-soft); font-weight:600;
+  }
+  .chip.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
+  .toolbar .file-actions{ margin-left:auto; display:flex; gap:8px; }
+
+  /* ---------- table ---------- */
+  .table-wrap{
+    background:var(--paper-raised); border:1px solid var(--line); border-radius:10px;
+    overflow:hidden; box-shadow:var(--shadow);
+  }
+  table{ width:100%; border-collapse:collapse; font-size:13.5px; }
+  thead th{
+    text-align:left; padding:11px 14px; border-bottom:1px solid var(--line);
+    color:var(--ink-soft); font-weight:600; font-size:12px; cursor:pointer; user-select:none;
+    background:#F7F6F0;
+  }
+  thead th:hover{ color:var(--ink); }
+  tbody td{ padding:12px 14px; border-bottom:1px solid var(--line-soft); vertical-align:middle; }
+  tbody tr:last-child td{ border-bottom:none; }
+  tbody tr:hover{ background:#FAF9F4; }
+  .name-cell b{ display:block; font-size:13.5px; }
+  .name-cell span{ display:block; font-size:12px; color:var(--ink-soft); }
+  .muted{ color:var(--ink-soft); }
+  .num{ font-variant-numeric: tabular-nums; }
+
+  .pill{
+    display:inline-block; padding:3px 10px; border-radius:20px; font-size:11.5px; font-weight:700;
+    border:1px solid transparent;
+  }
+  .pill-lead{ background:#EDEEF1; color:var(--slate); border-color:#DADCE0; }
+  .pill-prospect{ background:#FBF1DC; color:var(--accent-ink); border-color:#EFD9A0; }
+  .pill-customer{ background:#E3ECE9; color:var(--teal); border-color:#C4D8D2; }
+  .pill-inactive{ background:#F2E4DE; color:var(--rust); border-color:#E2C4B8; }
+
+  .row-actions{ display:flex; gap:4px; opacity:0; transition:opacity .1s; }
+  tbody tr.data-row:hover .row-actions{ opacity:1; }
+  tbody tr.data-row{ cursor:pointer; }
+  tbody tr.data-row.expanded{ background:#FAF9F4; }
+  .chevron-cell{ padding-right:0 !important; padding-left:14px !important; width:26px; }
+  .chevron{ display:inline-block; color:var(--ink-soft); font-size:11px; width:10px; }
+
+  .detail-row td{ padding:0; border-bottom:1px solid var(--line-soft); background:#FBFAF5; cursor:default; }
+  .detail-panel{ padding:16px 20px 18px 50px; }
+  .detail-grid{ display:flex; gap:32px; flex-wrap:wrap; }
+  .detail-grid > div:first-child{ flex:2; min-width:220px; }
+  .detail-side{ flex:1; min-width:180px; display:flex; flex-direction:column; gap:14px; }
+  .detail-label{ font-size:11px; font-weight:700; color:var(--ink-soft); text-transform:none; margin-bottom:5px; }
+  .detail-text{ font-size:13.5px; line-height:1.55; color:var(--ink); }
+  .tag{
+    display:inline-block; background:#EDEEF1; color:var(--ink-soft); border:1px solid var(--line);
+    padding:2px 9px; border-radius:20px; font-size:11.5px; margin:0 5px 5px 0;
+  }
+
+  .empty-state{ padding:70px 20px; text-align:center; color:var(--ink-soft); }
+  .empty-state h3{ font-family:Georgia,serif; color:var(--ink); margin-bottom:6px; font-size:18px;}
+  .empty-state p{ font-size:13.5px; margin:0 0 16px; }
+
+  /* ---------- drawer ---------- */
+  .overlay{
+    position:fixed; inset:0; background:rgba(34,49,63,0.35); opacity:0; pointer-events:none;
+    transition:opacity .18s ease; z-index:40;
+  }
+  .overlay.open{ opacity:1; pointer-events:auto; }
+  .drawer{
+    position:fixed; top:0; right:0; height:100vh; width:420px; max-width:92vw;
+    background:var(--paper-raised); box-shadow:-8px 0 30px rgba(0,0,0,0.15);
+    transform:translateX(100%); transition:transform .22s ease; z-index:41;
+    display:flex; flex-direction:column;
+  }
+  .drawer.open{ transform:translateX(0); }
+  .drawer-head{ padding:20px 22px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; }
+  .drawer-head h3{ font-family:Georgia,serif; margin:0; font-size:19px; }
+  .drawer-body{ padding:20px 22px; overflow-y:auto; flex:1; }
+  .drawer-foot{ padding:16px 22px; border-top:1px solid var(--line); display:flex; gap:10px; justify-content:flex-end; }
+
+  .field{ margin-bottom:16px; }
+  .field label{ display:block; font-size:12px; font-weight:700; color:var(--ink-soft); margin-bottom:5px; }
+  .field input, .field select, .field textarea{
+    width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:7px;
+    font-size:13.5px; font-family:inherit; color:var(--ink); background:#FCFBF8;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus{ outline:2px solid var(--accent); outline-offset:0; border-color:var(--accent); }
+  .field textarea{ resize:vertical; min-height:70px; }
+  .field-row{ display:flex; gap:12px; }
+  .field-row .field{ flex:1; }
+  .req{ color:var(--rust); }
+
+  .checkbox-inline{ display:inline-flex; align-items:center; gap:5px; font-size:13px; font-weight:600; color:var(--ink); }
+  .followup-add-row{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
+  .followup-add-row input[type=date]{ width:auto; padding:7px 9px; }
+  .fu-list{ display:flex; flex-direction:column; gap:6px; max-height:150px; overflow-y:auto; }
+  .fu-entry{
+    display:flex; align-items:center; justify-content:space-between; background:#F7F6F0;
+    border:1px solid var(--line-soft); border-radius:6px; padding:6px 10px; font-size:12.5px;
+  }
+  .fu-entry .fu-remove{ color:var(--rust); cursor:pointer; font-weight:700; background:none; border:none; font-size:13px; padding:0 2px; }
+  .fu-badge{ display:inline-block; font-size:11px; font-weight:700; padding:2px 9px; border-radius:20px; }
+  .fu-badge.call{ background:#E3ECE9; color:var(--teal); }
+  .fu-badge.mail{ background:#FBF1DC; color:var(--accent-ink); }
+  .followup-cell{ font-size:12.5px; }
+
+  /* ---------- import panel ---------- */
+  .io-menu{ position:relative; }
+  .io-dropdown{
+    position:absolute; right:0; top:calc(100% + 6px); background:var(--paper-raised);
+    border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); width:230px;
+    padding:6px; display:none; z-index:30;
+  }
+  .io-dropdown.open{ display:block; }
+  .io-dropdown button{
+    width:100%; text-align:left; background:none; border:none; padding:9px 10px; border-radius:6px;
+    font-size:13px; color:var(--ink); display:flex; align-items:center; gap:8px;
+  }
+  .io-dropdown button:hover{ background:var(--paper); }
+  .io-dropdown .divider{ height:1px; background:var(--line-soft); margin:5px 2px; }
+  .io-dropdown .hint{ padding:6px 10px 2px; font-size:11px; color:var(--ink-soft); }
+
+  #importFileInput{ display:none; }
+
+  .toast{
+    position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(10px);
+    background:var(--ink); color:#fff; padding:10px 18px; border-radius:8px; font-size:13px;
+    opacity:0; pointer-events:none; transition:all .18s ease; z-index:60; box-shadow:var(--shadow);
+  }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+
+  @media (max-width: 800px){
+    .sidebar{ display:none; }
+    .main{ padding:18px; }
+    table{ font-size:12.5px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- ================= SIDEBAR ================= -->
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark"></span><h1 class="serif">Ledger</h1></div>
+    <p class="brand-sub">local customer record book</p>
+
+    <div class="stat-block">
+      <div class="stat-row"><span>Total contacts</span><b id="statTotal">0</b></div>
+      <div class="stat-row"><span>Customers</span><b id="statCustomers">0</b></div>
+      <div class="stat-row"><span>Active projects</span><b id="statPipeline">0</b></div>
+    </div>
+
+    <div class="nav-label">VIEW</div>
+    <div class="nav-item active" data-filter="All"><span>All contacts</span><span class="count" id="cAll">0</span></div>
+    <div class="nav-item" data-filter="Lead"><span>Leads</span><span class="count" id="cLead">0</span></div>
+    <div class="nav-item" data-filter="Prospect"><span>Prospects</span><span class="count" id="cProspect">0</span></div>
+    <div class="nav-item" data-filter="Customer"><span>Customers</span><span class="count" id="cCustomer">0</span></div>
+    <div class="nav-item" data-filter="Inactive"><span>Inactive</span><span class="count" id="cInactive">0</span></div>
+
+    <div class="sidebar-foot">
+      <div><span class="save-dot"></span><span id="saveStatus">Saved locally in this browser</span></div>
+      <div style="margin-top:6px;">Use Export to write an Excel or text file to disk.</div>
+    </div>
+  </aside>
+
+  <!-- ================= MAIN ================= -->
+  <main class="main">
+    <div class="topbar">
+      <h2 class="serif">All contacts</h2>
+      <div class="search-wrap">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="searchInput" type="text" placeholder="Search name, company, email…">
+      </div>
+      <div class="spacer"></div>
+      <button class="btn btn-sm" id="cloudBtn">☁ Sync</button>
+      <button class="btn btn-accent" id="addBtn">+ Add contact</button>
+    </div>
+
+    <div class="toolbar">
+      <button class="chip active" data-status="All">All</button>
+      <button class="chip" data-status="Lead">Lead</button>
+      <button class="chip" data-status="Prospect">Prospect</button>
+      <button class="chip" data-status="Customer">Customer</button>
+      <button class="chip" data-status="Inactive">Inactive</button>
+
+      <div class="file-actions">
+        <div class="io-menu">
+          <button class="btn btn-sm" id="importBtn">Import ▾</button>
+          <div class="io-dropdown" id="importDropdown">
+            <div class="hint">Bring in contacts from a file</div>
+            <button id="importFileBtn">📄 Import CSV / Excel / Text</button>
+            <div class="divider"></div>
+            <label style="display:flex;align-items:center;gap:7px;padding:7px 10px;font-size:12.5px;color:var(--ink-soft);">
+              <input type="checkbox" id="replaceOnImport"> Replace all existing data
+            </label>
+          </div>
+          <input type="file" id="importFileInput" accept=".csv,.txt,.xlsx,.xls,.json">
+        </div>
+        <div class="io-menu">
+          <button class="btn btn-sm" id="exportBtn">Export ▾</button>
+          <div class="io-dropdown" id="exportDropdown">
+            <div class="hint">Save current contacts to disk</div>
+            <button data-export="xlsx">📊 Excel workbook (.xlsx)</button>
+            <button data-export="csv">📑 CSV file (.csv)</button>
+            <button data-export="txt">📝 Text file (.txt)</button>
+            <div class="divider"></div>
+            <button data-export="json">🗄 Full backup (.json)</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:26px;"></th>
+            <th data-sort="name">Name</th>
+            <th data-sort="status">Status</th>
+            <th data-sort="phone">Phone</th>
+            <th data-sort="project">Project</th>
+            <th data-sort="meetingDate">Date of meeting</th>
+            <th>Follow-up</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+      <div class="empty-state" id="emptyState" style="display:none;">
+        <h3 class="serif">No contacts yet</h3>
+        <p>Add your first contact, or import a CSV / Excel file to get started.</p>
+        <button class="btn btn-primary" id="emptyAddBtn">+ Add contact</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ================= DRAWER (add/edit) ================= -->
+<div class="overlay" id="overlay"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-head">
+    <h3 id="drawerTitle">Add contact</h3>
+    <button class="btn-ghost" id="closeDrawer" style="font-size:18px;">✕</button>
+  </div>
+  <div class="drawer-body">
+    <form id="contactForm">
+      <input type="hidden" id="f_id">
+      <div class="field"><label>Full name <span class="req">*</span></label><input id="f_name" required></div>
+      <div class="field-row">
+        <div class="field"><label>Company</label><input id="f_company"></div>
+        <div class="field"><label>Status</label>
+          <select id="f_status">
+            <option>Lead</option><option>Prospect</option><option>Customer</option><option>Inactive</option>
+          </select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Email</label><input id="f_email" type="email"></div>
+        <div class="field"><label>Phone</label><input id="f_phone" type="tel"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Project</label><input id="f_project" placeholder="e.g. Website redesign, Q3 renewal"></div>
+        <div class="field"><label>Date of meeting</label><input id="f_meetingDate" type="date"></div>
+      </div>
+      <div class="field">
+        <label>Follow up</label>
+        <div class="followup-add-row">
+          <label class="checkbox-inline"><input type="checkbox" id="fu_call_check"> Call</label>
+          <label class="checkbox-inline"><input type="checkbox" id="fu_mail_check"> Mail</label>
+          <input type="date" id="fu_date">
+          <button type="button" class="btn btn-sm" id="fu_addBtn">+ Log</button>
+        </div>
+        <div id="fu_list" class="fu-list"></div>
+      </div>
+      <div class="field"><label>Tags (comma separated)</label><input id="f_tags" placeholder="vip, referral, webinar"></div>
+      <div class="field"><label>Description</label><textarea id="f_description" placeholder="What was discussed in the meeting, background, next steps…"></textarea></div>
+    </form>
+  </div>
+  <div class="drawer-foot">
+    <button class="btn btn-ghost btn-danger-text" id="deleteBtn" style="display:none;margin-right:auto;">Delete contact</button>
+    <button class="btn" id="cancelBtn">Cancel</button>
+    <button class="btn btn-primary" id="saveBtn">Save contact</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ================= DRAWER (cloud sync) ================= -->
+<div class="overlay" id="cloudOverlay"></div>
+<div class="drawer" id="cloudDrawer">
+  <div class="drawer-head">
+    <h3 class="serif">Google Sheet sync</h3>
+    <button class="btn-ghost" id="closeCloudDrawer" style="font-size:18px;">✕</button>
+  </div>
+  <div class="drawer-body">
+    <p class="muted" style="font-size:12.5px;line-height:1.6;margin-top:0;">
+      Connect this CRM to a Google Sheet so everyone you share it with sees the same contacts.
+      The sheet needs a tab named <b>Contacts</b>. <a href="#" id="cloudHelpToggle">Setup steps ▾</a>
+    </p>
+    <div id="cloudHelp" style="display:none; font-size:12px; color:var(--ink-soft); background:#F7F6F0; border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:16px; line-height:1.7;">
+      1. In Google Sheets, create a spreadsheet and add a tab named exactly <b>Contacts</b>.<br>
+      2. Copy the Spreadsheet ID from its URL — the long id between <code>/d/</code> and <code>/edit</code>.<br>
+      3. In Google Cloud Console, enable the <b>Google Sheets API</b> and create an <b>OAuth Client ID</b> (Web application), adding this page's exact URL under Authorized JavaScript origins.<br>
+      4. Paste the Client ID and Spreadsheet ID below, save, then sign in. Share the Sheet (Editor access) with anyone who should sync.
+    </div>
+    <div class="field"><label>Google OAuth Client ID</label><input id="cfg_clientId" placeholder="xxxxxxxx.apps.googleusercontent.com"></div>
+    <div class="field"><label>Spreadsheet ID</label><input id="cfg_sheetId" placeholder="from the sheet's URL"></div>
+    <button class="btn btn-sm" id="saveCloudConfig">Save settings</button>
+
+    <div style="margin-top:22px;padding-top:18px;border-top:1px solid var(--line);">
+      <div id="cloudStatus" class="muted" style="font-size:12.5px;margin-bottom:12px;">Not connected</div>
+      <button class="btn btn-primary btn-sm" id="googleSignInBtn">Sign in with Google</button>
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <button class="btn btn-sm" id="pushSheetBtn" disabled>⬆ Push to Sheet</button>
+        <button class="btn btn-sm" id="pullSheetBtn" disabled>⬇ Pull from Sheet</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  var STORAGE_KEY = "ledger_crm_contacts_v1";
+  var contacts = [];
+  var state = { search:"", status:"All", sortKey:"name", sortDir:1, editingId:null, expandedIds:new Set(), formFollowUps:[] };
+
+  // ---------- persistence ----------
+  function load(){
+    try{
+      var raw = localStorage.getItem(STORAGE_KEY);
+      contacts = raw ? JSON.parse(raw) : seedData();
+    }catch(e){ contacts = seedData(); }
+    contacts = contacts.map(migrateFields);
+  }
+
+  // Carries over data saved by an earlier version of this app (Deal value / Last contact / Notes)
+  // into the current field names, so nothing already saved gets lost.
+  function migrateFields(c){
+    if(c.project === undefined) c.project = c.dealValue !== undefined ? String(c.dealValue) : "";
+    if(c.meetingDate === undefined) c.meetingDate = c.lastContact || "";
+    if(c.description === undefined) c.description = c.notes || "";
+    if(c.followUps === undefined) c.followUps = [];
+    delete c.dealValue; delete c.lastContact; delete c.notes;
+    return c;
+  }
+
+  function save(){
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(contacts));
+      var el = document.getElementById("saveStatus");
+      el.textContent = "Saved locally · " + new Date().toLocaleTimeString();
+    }catch(e){
+      document.getElementById("saveStatus").textContent = "Could not save (storage full or blocked)";
+    }
+    if(typeof gAccessToken !== "undefined" && gAccessToken) pushToSheet(true);
+  }
+
+  function seedData(){
+    return [
+      { id: uid(), name:"Priya Sharma", company:"Nimbus Retail", email:"priya@nimbusretail.com", phone:"+91 98100 22334", status:"Customer", project:"Annual plan renewal", meetingDate: daysAgo(3), tags:"vip, renewal", description:"Renewed annual plan in March. Wants a demo of the new reporting module.",
+        followUps:[ {id:uid(),type:"Call",date:daysAgo(10)}, {id:uid(),type:"Mail",date:daysAgo(7)}, {id:uid(),type:"Call",date:daysAgo(2)} ] },
+      { id: uid(), name:"Daniel Okafor", company:"Brightline Logistics", email:"daniel@brightline.io", phone:"+1 415 555 0199", status:"Prospect", project:"Fleet tracking rollout", meetingDate: daysAgo(9), tags:"referral", description:"Referred by Priya. Evaluating against two competitors.",
+        followUps:[ {id:uid(),type:"Mail",date:daysAgo(5)} ] },
+      { id: uid(), name:"Mei Lin", company:"Harborview Clinics", email:"mei.lin@harborview.org", phone:"+65 8123 4567", status:"Lead", project:"Patient intake pilot", meetingDate: daysAgo(20), tags:"webinar", description:"Signed up after the Q2 webinar. Not yet contacted by sales.", followUps:[] },
+      { id: uid(), name:"Tomas Novak", company:"Fieldstone & Co.", email:"tomas@fieldstoneco.com", phone:"+420 601 112 233", status:"Inactive", project:"", meetingDate: daysAgo(140), tags:"", description:"Churned last year, budget cuts. Worth a check-in next quarter.", followUps:[] }
+    ];
+  }
+  function daysAgo(n){ var d=new Date(); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); }
+  function uid(){ return "c_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2,8); }
+
+  // ---------- rendering ----------
+  function pillClass(status){
+    return { Lead:"pill-lead", Prospect:"pill-prospect", Customer:"pill-customer", Inactive:"pill-inactive" }[status] || "pill-lead";
+  }
+
+  function summarizeFollowUpsShort(list){
+    if(!list || !list.length) return "—";
+    var counts = {};
+    list.forEach(function(f){ counts[f.type] = (counts[f.type]||0)+1; });
+    return Object.keys(counts).map(function(t){ return t+" ×"+counts[t]; }).join(", ");
+  }
+  function followUpHistoryHtml(list){
+    if(!list || !list.length) return '<span class="muted">No follow-ups logged yet</span>';
+    var sorted = list.slice().sort(function(a,b){ return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+    return sorted.map(function(f){
+      var cls = f.type === "Call" ? "call" : "mail";
+      return '<div style="margin-bottom:4px;"><span class="fu-badge '+cls+'">'+esc(f.type)+'</span> <span class="muted">'+esc(f.date||"—")+'</span></div>';
+    }).join("");
+  }
+  // "Call: 2026-09-02, 2026-09-04; Mail: 2026-09-03" — a flat text form for CSV/Excel export & import
+  function formatFollowUps(list){
+    if(!list || !list.length) return "";
+    var byType = {};
+    list.slice().sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:0; }).forEach(function(f){
+      (byType[f.type] = byType[f.type] || []).push(f.date);
+    });
+    return Object.keys(byType).map(function(t){ return t+": "+byType[t].join(", "); }).join("; ");
+  }
+  function parseFollowUpsString(str){
+    if(!str) return [];
+    var out = [];
+    String(str).split(";").forEach(function(part){
+      part = part.trim(); if(!part) return;
+      var idx = part.indexOf(":");
+      if(idx === -1) return;
+      var type = part.slice(0, idx).trim();
+      var dates = part.slice(idx+1).split(",");
+      dates.forEach(function(d){ d = d.trim(); if(d) out.push({ id: uid(), type: type, date: d }); });
+    });
+    return out;
+  }
+
+  function getFiltered(){
+    var s = state.search.trim().toLowerCase();
+    var rows = contacts.filter(function(c){
+      var matchesStatus = state.status === "All" || c.status === state.status;
+      var matchesSearch = !s || (c.name+" "+c.company+" "+c.email).toLowerCase().indexOf(s) !== -1;
+      return matchesStatus && matchesSearch;
+    });
+    rows.sort(function(a,b){
+      var k = state.sortKey;
+      var av = (a[k]||"").toString().toLowerCase(), bv = (b[k]||"").toString().toLowerCase();
+      if(av < bv) return -1*state.sortDir;
+      if(av > bv) return 1*state.sortDir;
+      return 0;
+    });
+    return rows;
+  }
+
+  function render(){
+    var rows = getFiltered();
+    var tbody = document.getElementById("tableBody");
+    var empty = document.getElementById("emptyState");
+    tbody.innerHTML = "";
+
+    if(rows.length === 0){
+      empty.style.display = "block";
+    } else {
+      empty.style.display = "none";
+      rows.forEach(function(c){
+        var isOpen = state.expandedIds.has(c.id);
+        var tr = document.createElement("tr");
+        tr.className = "data-row" + (isOpen ? " expanded" : "");
+        tr.setAttribute("data-row-id", c.id);
+        tr.innerHTML =
+          '<td class="chevron-cell"><span class="chevron">'+(isOpen? "▾" : "▸")+'</span></td>'+
+          '<td class="name-cell"><b>'+esc(c.name)+'</b><span>'+esc(c.company||"—")+(c.email? " · "+esc(c.email):"")+'</span></td>'+
+          '<td><span class="pill '+pillClass(c.status)+'">'+esc(c.status)+'</span></td>'+
+          '<td class="muted">'+esc(c.phone||"—")+'</td>'+
+          '<td class="muted">'+esc(c.project||"—")+'</td>'+
+          '<td class="muted">'+esc(c.meetingDate||"—")+'</td>'+
+          '<td class="muted followup-cell">'+summarizeFollowUpsShort(c.followUps)+'</td>'+
+          '<td><div class="row-actions">'+
+            '<button class="btn-ghost btn-sm" data-edit="'+c.id+'">Edit</button>'+
+            '<button class="btn-ghost btn-sm btn-danger-text" data-del="'+c.id+'">Delete</button>'+
+          '</div></td>';
+        tbody.appendChild(tr);
+
+        if(isOpen){
+          var trDetail = document.createElement("tr");
+          trDetail.className = "detail-row";
+          var tagsHtml = c.tags
+            ? c.tags.split(",").map(function(t){ t=t.trim(); return t? '<span class="tag">'+esc(t)+'</span>':""; }).join("")
+            : '<span class="muted">No tags</span>';
+          trDetail.innerHTML =
+            '<td colspan="8"><div class="detail-panel">'+
+              '<div class="detail-grid">'+
+                '<div><div class="detail-label">Description</div><div class="detail-text">'+
+                  (c.description ? esc(c.description).replace(/\n/g,"<br>") : '<span class="muted">No description added yet — click Edit to add meeting notes.</span>')+
+                '</div></div>'+
+                '<div class="detail-side">'+
+                  '<div><div class="detail-label">Email</div><div class="detail-text">'+esc(c.email||"—")+'</div></div>'+
+                  '<div><div class="detail-label">Tags</div><div class="detail-text">'+tagsHtml+'</div></div>'+
+                  '<div><div class="detail-label">Follow-up history</div><div class="detail-text">'+followUpHistoryHtml(c.followUps)+'</div></div>'+
+                '</div>'+
+              '</div>'+
+            '</div></td>';
+          tbody.appendChild(trDetail);
+        }
+      });
+    }
+    renderStats();
+  }
+
+  function esc(str){
+    return String(str==null?"":str).replace(/[&<>"']/g, function(m){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m];
+    });
+  }
+
+  function renderStats(){
+    var counts = { All: contacts.length, Lead:0, Prospect:0, Customer:0, Inactive:0 };
+    var activeProjects = 0;
+    contacts.forEach(function(c){
+      if(counts[c.status] !== undefined) counts[c.status]++;
+      if(c.project && c.project.trim()) activeProjects++;
+    });
+    document.getElementById("statTotal").textContent = counts.All;
+    document.getElementById("statCustomers").textContent = counts.Customer;
+    document.getElementById("statPipeline").textContent = activeProjects;
+    document.getElementById("cAll").textContent = counts.All;
+    document.getElementById("cLead").textContent = counts.Lead;
+    document.getElementById("cProspect").textContent = counts.Prospect;
+    document.getElementById("cCustomer").textContent = counts.Customer;
+    document.getElementById("cInactive").textContent = counts.Inactive;
+  }
+
+  // ---------- drawer / form ----------
+  var overlay = document.getElementById("overlay");
+  var drawer = document.getElementById("drawer");
+
+  function openDrawer(contact){
+    state.editingId = contact ? contact.id : null;
+    document.getElementById("drawerTitle").textContent = contact ? "Edit contact" : "Add contact";
+    document.getElementById("deleteBtn").style.display = contact ? "inline-flex" : "none";
+    document.getElementById("f_id").value = contact ? contact.id : "";
+    document.getElementById("f_name").value = contact ? contact.name : "";
+    document.getElementById("f_company").value = contact ? contact.company : "";
+    document.getElementById("f_status").value = contact ? contact.status : "Lead";
+    document.getElementById("f_email").value = contact ? contact.email : "";
+    document.getElementById("f_phone").value = contact ? contact.phone : "";
+    document.getElementById("f_project").value = contact ? contact.project : "";
+    document.getElementById("f_meetingDate").value = contact ? contact.meetingDate : "";
+    document.getElementById("f_tags").value = contact ? contact.tags : "";
+    document.getElementById("f_description").value = contact ? contact.description : "";
+    state.formFollowUps = contact && contact.followUps ? contact.followUps.slice() : [];
+    document.getElementById("fu_call_check").checked = false;
+    document.getElementById("fu_mail_check").checked = false;
+    document.getElementById("fu_date").value = new Date().toISOString().slice(0,10);
+    renderFollowUpList();
+    overlay.classList.add("open");
+    drawer.classList.add("open");
+    setTimeout(function(){ document.getElementById("f_name").focus(); }, 150);
+  }
+  function closeDrawer(){
+    overlay.classList.remove("open");
+    drawer.classList.remove("open");
+    state.editingId = null;
+  }
+
+  function renderFollowUpList(){
+    var wrap = document.getElementById("fu_list");
+    if(!state.formFollowUps.length){
+      wrap.innerHTML = '<div class="muted" style="font-size:12px;">No follow-ups logged yet.</div>';
+      return;
+    }
+    var sorted = state.formFollowUps.slice().sort(function(a,b){ return a.date<b.date?1:a.date>b.date?-1:0; });
+    wrap.innerHTML = sorted.map(function(f){
+      var cls = f.type === "Call" ? "call" : "mail";
+      return '<div class="fu-entry"><span><span class="fu-badge '+cls+'">'+esc(f.type)+'</span> '+esc(f.date||"—")+'</span>'+
+        '<button type="button" class="fu-remove" data-fu-remove="'+f.id+'">✕</button></div>';
+    }).join("");
+  }
+
+  document.getElementById("fu_addBtn").addEventListener("click", function(){
+    var call = document.getElementById("fu_call_check").checked;
+    var mail = document.getElementById("fu_mail_check").checked;
+    var date = document.getElementById("fu_date").value || new Date().toISOString().slice(0,10);
+    if(!call && !mail){ toast("Check Call or Mail to log a follow-up"); return; }
+    if(call) state.formFollowUps.push({ id: uid(), type:"Call", date: date });
+    if(mail) state.formFollowUps.push({ id: uid(), type:"Mail", date: date });
+    document.getElementById("fu_call_check").checked = false;
+    document.getElementById("fu_mail_check").checked = false;
+    renderFollowUpList();
+  });
+
+  document.getElementById("fu_list").addEventListener("click", function(e){
+    var id = e.target.getAttribute("data-fu-remove");
+    if(id){
+      state.formFollowUps = state.formFollowUps.filter(function(f){ return f.id !== id; });
+      renderFollowUpList();
+    }
+  });
+
+  document.getElementById("addBtn").addEventListener("click", function(){ openDrawer(null); });
+  document.getElementById("emptyAddBtn").addEventListener("click", function(){ openDrawer(null); });
+  document.getElementById("closeDrawer").addEventListener("click", closeDrawer);
+  document.getElementById("cancelBtn").addEventListener("click", closeDrawer);
+  overlay.addEventListener("click", closeDrawer);
+
+  document.getElementById("saveBtn").addEventListener("click", function(){
+    var name = document.getElementById("f_name").value.trim();
+    if(!name){ document.getElementById("f_name").focus(); toast("Name is required"); return; }
+    var data = {
+      name: name,
+      company: document.getElementById("f_company").value.trim(),
+      status: document.getElementById("f_status").value,
+      email: document.getElementById("f_email").value.trim(),
+      phone: document.getElementById("f_phone").value.trim(),
+      project: document.getElementById("f_project").value.trim(),
+      meetingDate: document.getElementById("f_meetingDate").value,
+      tags: document.getElementById("f_tags").value.trim(),
+      description: document.getElementById("f_description").value.trim(),
+      followUps: state.formFollowUps.slice()
+    };
+    if(state.editingId){
+      var idx = contacts.findIndex(function(c){ return c.id === state.editingId; });
+      if(idx !== -1) contacts[idx] = Object.assign(contacts[idx], data);
+      toast("Contact updated");
+    } else {
+      data.id = uid();
+      contacts.unshift(data);
+      toast("Contact added");
+    }
+    save(); render(); closeDrawer();
+  });
+
+  document.getElementById("deleteBtn").addEventListener("click", function(){
+    if(!state.editingId) return;
+    if(confirm("Delete this contact? This cannot be undone.")){
+      contacts = contacts.filter(function(c){ return c.id !== state.editingId; });
+      save(); render(); closeDrawer();
+      toast("Contact deleted");
+    }
+  });
+
+  document.getElementById("tableBody").addEventListener("click", function(e){
+    var editId = e.target.getAttribute("data-edit");
+    var delId = e.target.getAttribute("data-del");
+    if(editId){
+      var c = contacts.find(function(x){ return x.id === editId; });
+      if(c) openDrawer(c);
+      return;
+    } else if(delId){
+      if(confirm("Delete this contact? This cannot be undone.")){
+        contacts = contacts.filter(function(c){ return c.id !== delId; });
+        save(); render();
+        toast("Contact deleted");
+      }
+      return;
+    }
+    // Click anywhere else on a contact row: expand/collapse its details
+    var tr = e.target.closest ? e.target.closest("tr.data-row") : null;
+    if(tr){
+      var id = tr.getAttribute("data-row-id");
+      if(state.expandedIds.has(id)) state.expandedIds.delete(id);
+      else state.expandedIds.add(id);
+      render();
+    }
+  });
+
+  // ---------- search / filter / sort ----------
+  document.getElementById("searchInput").addEventListener("input", function(e){
+    state.search = e.target.value; render();
+  });
+  document.querySelectorAll(".chip").forEach(function(chip){
+    chip.addEventListener("click", function(){
+      document.querySelectorAll(".chip").forEach(function(c){ c.classList.remove("active"); });
+      chip.classList.add("active");
+      state.status = chip.getAttribute("data-status");
+      syncSidebarActive();
+      render();
+    });
+  });
+  document.querySelectorAll(".nav-item").forEach(function(item){
+    item.addEventListener("click", function(){
+      state.status = item.getAttribute("data-filter");
+      document.querySelectorAll(".chip").forEach(function(c){
+        c.classList.toggle("active", c.getAttribute("data-status") === state.status);
+      });
+      syncSidebarActive();
+      render();
+    });
+  });
+  function syncSidebarActive(){
+    document.querySelectorAll(".nav-item").forEach(function(item){
+      item.classList.toggle("active", item.getAttribute("data-filter") === state.status);
+    });
+    document.querySelector(".topbar h2").textContent = state.status === "All" ? "All contacts" : state.status + "s";
+  }
+  document.querySelectorAll("thead th[data-sort]").forEach(function(th){
+    th.addEventListener("click", function(){
+      var key = th.getAttribute("data-sort");
+      if(state.sortKey === key){ state.sortDir *= -1; } else { state.sortKey = key; state.sortDir = 1; }
+      render();
+    });
+  });
+
+  // ---------- toast ----------
+  var toastTimer;
+  function toast(msg){
+    var el = document.getElementById("toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function(){ el.classList.remove("show"); }, 2200);
+  }
+
+  // ---------- import / export dropdowns ----------
+  function bindDropdown(btnId, dropId){
+    var btn = document.getElementById(btnId), drop = document.getElementById(dropId);
+    btn.addEventListener("click", function(e){
+      e.stopPropagation();
+      var isOpen = drop.classList.contains("open");
+      document.querySelectorAll(".io-dropdown").forEach(function(d){ d.classList.remove("open"); });
+      if(!isOpen) drop.classList.add("open");
+    });
+  }
+  bindDropdown("importBtn", "importDropdown");
+  bindDropdown("exportBtn", "exportDropdown");
+  document.addEventListener("click", function(){
+    document.querySelectorAll(".io-dropdown").forEach(function(d){ d.classList.remove("open"); });
+  });
+
+  // ---------- export ----------
+  function download(filename, content, mime){
+    var blob = new Blob([content], { type: mime });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+  }
+
+  var EXPORT_COLUMNS = ["name","company","email","phone","status","project","meetingDate","tags","description","followUps"];
+  var EXPORT_HEADERS = ["Name","Company","Email","Phone","Status","Project","Date of Meeting","Tags","Description","Follow Up"];
+
+  function toCSVValue(v, delimiter){
+    v = v==null? "" : String(v);
+    if(v.indexOf(delimiter) !== -1 || v.indexOf('"') !== -1 || v.indexOf("\n") !== -1){
+      v = '"' + v.replace(/"/g,'""') + '"';
+    }
+    return v;
+  }
+  function buildDelimited(delimiter){
+    var lines = [EXPORT_HEADERS.join(delimiter)];
+    contacts.forEach(function(c){
+      lines.push(EXPORT_COLUMNS.map(function(k){
+        var v = k === "followUps" ? formatFollowUps(c.followUps) : c[k];
+        return toCSVValue(v, delimiter);
+      }).join(delimiter));
+    });
+    return lines.join("\n");
+  }
+
+  document.querySelectorAll("#exportDropdown button[data-export]").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var type = btn.getAttribute("data-export");
+      var stamp = new Date().toISOString().slice(0,10);
+      if(contacts.length === 0 && type !== "json"){ toast("No contacts to export yet"); return; }
+      if(type === "csv"){
+        download("contacts_"+stamp+".csv", buildDelimited(","), "text/csv;charset=utf-8;");
+        toast("Exported CSV file");
+      } else if(type === "txt"){
+        download("contacts_"+stamp+".txt", buildDelimited("\t"), "text/plain;charset=utf-8;");
+        toast("Exported text file");
+      } else if(type === "json"){
+        download("crm_backup_"+stamp+".json", JSON.stringify(contacts, null, 2), "application/json");
+        toast("Exported full backup");
+      } else if(type === "xlsx"){
+        if(typeof XLSX === "undefined"){
+          toast("Excel export needs an internet connection (library didn't load) — try CSV instead");
+          return;
+        }
+        var aoa = [EXPORT_HEADERS];
+        contacts.forEach(function(c){
+          aoa.push(EXPORT_COLUMNS.map(function(k){
+            var v = k === "followUps" ? formatFollowUps(c.followUps) : c[k];
+            return v==null? "" : v;
+          }));
+        });
+        var ws = XLSX.utils.aoa_to_sheet(aoa);
+        ws["!cols"] = [{wch:20},{wch:20},{wch:24},{wch:16},{wch:10},{wch:18},{wch:14},{wch:18},{wch:30},{wch:26}];
+        var wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Contacts");
+        XLSX.writeFile(wb, "contacts_"+stamp+".xlsx");
+        toast("Exported Excel workbook");
+      }
+      document.getElementById("exportDropdown").classList.remove("open");
+    });
+  });
+
+  // ---------- import ----------
+  var importInput = document.getElementById("importFileInput");
+  document.getElementById("importFileBtn").addEventListener("click", function(){
+    importInput.value = "";
+    importInput.click();
+  });
+
+  importInput.addEventListener("change", function(){
+    var file = importInput.files[0];
+    if(!file) return;
+    var ext = file.name.split(".").pop().toLowerCase();
+    var reader = new FileReader();
+
+    reader.onload = function(e){
+      try{
+        var imported = [];
+        if(ext === "json"){
+          var data = JSON.parse(e.target.result);
+          imported = Array.isArray(data) ? data.map(normalizeRecord) : [];
+        } else if(ext === "xlsx" || ext === "xls"){
+          if(typeof XLSX === "undefined"){ toast("Excel import needs an internet connection to load the library"); return; }
+          var wb = XLSX.read(e.target.result, { type:"binary" });
+          var sheet = wb.Sheets[wb.SheetNames[0]];
+          var rows = XLSX.utils.sheet_to_json(sheet, { defval:"" });
+          imported = rows.map(rowToRecord);
+        } else {
+          // csv or txt: detect delimiter from first line
+          var text = e.target.result;
+          var firstLine = text.split(/\r?\n/)[0] || "";
+          var delimiter = firstLine.indexOf("\t") !== -1 ? "\t" : ",";
+          var rows2 = parseDelimited(text, delimiter);
+          imported = rows2.map(rowToRecord);
+        }
+        imported = imported.filter(function(r){ return r && r.name; });
+        if(imported.length === 0){ toast("No valid contacts found in that file"); return; }
+
+        if(document.getElementById("replaceOnImport").checked){
+          contacts = imported;
+        } else {
+          contacts = imported.concat(contacts);
+        }
+        save(); render();
+        toast("Imported " + imported.length + " contact" + (imported.length===1?"":"s"));
+      }catch(err){
+        console.error(err);
+        toast("Could not read that file — check the format and try again");
+      }
+      document.getElementById("importDropdown").classList.remove("open");
+    };
+
+    if(ext === "xlsx" || ext === "xls") reader.readAsBinaryString(file);
+    else reader.readAsText(file);
+  });
+
+  function normalizeRecord(r){
+    return {
+      id: uid(),
+      name: r.name || r.Name || "",
+      company: r.company || r.Company || "",
+      email: r.email || r.Email || "",
+      phone: r.phone || r.Phone || "",
+      status: r.status || r.Status || "Lead",
+      project: r.project || r.Project || (r.dealValue !== undefined ? String(r.dealValue) : "") || r["Deal Value"] || "",
+      meetingDate: r.meetingDate || r["Date of Meeting"] || r.lastContact || r["Last Contact"] || "",
+      tags: r.tags || r.Tags || "",
+      description: r.description || r.Description || r.notes || r.Notes || "",
+      followUps: Array.isArray(r.followUps) ? r.followUps.map(function(f){ return { id: f.id||uid(), type: f.type, date: f.date }; }) : parseFollowUpsString(r["Follow Up"] || r.followUp || "")
+    };
+  }
+  function rowToRecord(row){
+    // row is an object keyed by header text (from CSV/XLSX)
+    var lower = {};
+    Object.keys(row).forEach(function(k){ lower[k.trim().toLowerCase()] = row[k]; });
+    return {
+      id: uid(),
+      name: lower.name || "",
+      company: lower.company || "",
+      email: lower.email || "",
+      phone: lower.phone || "",
+      status: lower.status || "Lead",
+      project: lower.project || lower["deal value"] || lower.dealvalue || "",
+      meetingDate: lower["date of meeting"] || lower.meetingdate || lower["last contact"] || lower.lastcontact || "",
+      tags: lower.tags || "",
+      description: lower.description || lower.notes || "",
+      followUps: parseFollowUpsString(lower["follow up"] || lower.followup || "")
+    };
+  }
+  function parseDelimited(text, delimiter){
+    var lines = text.split(/\r?\n/).filter(function(l){ return l.length > 0; });
+    if(lines.length === 0) return [];
+    var headers = splitCSVLine(lines[0], delimiter);
+    var out = [];
+    for(var i=1;i<lines.length;i++){
+      var cells = splitCSVLine(lines[i], delimiter);
+      var obj = {};
+      headers.forEach(function(h, idx){ obj[h] = cells[idx] !== undefined ? cells[idx] : ""; });
+      out.push(obj);
+    }
+    return out;
+  }
+  function splitCSVLine(line, delimiter){
+    var out = [], cur = "", inQuotes = false;
+    for(var i=0;i<line.length;i++){
+      var ch = line[i];
+      if(inQuotes){
+        if(ch === '"'){
+          if(line[i+1] === '"'){ cur += '"'; i++; } else { inQuotes = false; }
+        } else { cur += ch; }
+      } else {
+        if(ch === '"'){ inQuotes = true; }
+        else if(ch === delimiter){ out.push(cur); cur = ""; }
+        else { cur += ch; }
+      }
+    }
+    out.push(cur);
+    return out;
+  }
+
+  // ---------- cloud sync (Google Sheets) ----------
+  var GCFG_KEY = "ledger_crm_gcfg_v1";
+  var gcfg = { clientId:"", spreadsheetId:"", sheetName:"Contacts" };
+  var gAccessToken = null;
+  var gTokenClient = null;
+  var pollTimer = null;
+
+  function loadGCFG(){
+    try{
+      var raw = localStorage.getItem(GCFG_KEY);
+      if(raw) gcfg = Object.assign(gcfg, JSON.parse(raw));
+    }catch(e){}
+  }
+  function saveGCFG(){
+    try{ localStorage.setItem(GCFG_KEY, JSON.stringify(gcfg)); }catch(e){}
+  }
+
+  var cloudOverlay = document.getElementById("cloudOverlay");
+  var cloudDrawer = document.getElementById("cloudDrawer");
+
+  document.getElementById("cloudBtn").addEventListener("click", function(){
+    document.getElementById("cfg_clientId").value = gcfg.clientId;
+    document.getElementById("cfg_sheetId").value = gcfg.spreadsheetId;
+    updateCloudStatusUI();
+    cloudOverlay.classList.add("open");
+    cloudDrawer.classList.add("open");
+  });
+  function closeCloudDrawer(){
+    cloudOverlay.classList.remove("open");
+    cloudDrawer.classList.remove("open");
+  }
+  document.getElementById("closeCloudDrawer").addEventListener("click", closeCloudDrawer);
+  cloudOverlay.addEventListener("click", closeCloudDrawer);
+  document.getElementById("cloudHelpToggle").addEventListener("click", function(e){
+    e.preventDefault();
+    var h = document.getElementById("cloudHelp");
+    h.style.display = h.style.display === "none" ? "block" : "none";
+  });
+
+  document.getElementById("saveCloudConfig").addEventListener("click", function(){
+    gcfg.clientId = document.getElementById("cfg_clientId").value.trim();
+    gcfg.spreadsheetId = document.getElementById("cfg_sheetId").value.trim();
+    saveGCFG();
+    gTokenClient = null; // rebuild with the new client id next sign-in
+    toast("Sync settings saved");
+    updateCloudStatusUI();
+  });
+
+  function updateCloudStatusUI(){
+    var statusEl = document.getElementById("cloudStatus");
+    var pushBtn = document.getElementById("pushSheetBtn");
+    var pullBtn = document.getElementById("pullSheetBtn");
+    if(!gcfg.clientId || !gcfg.spreadsheetId){
+      statusEl.textContent = "Add your Client ID and Spreadsheet ID, then save.";
+      pushBtn.disabled = true; pullBtn.disabled = true;
+      return;
+    }
+    if(gAccessToken){
+      statusEl.textContent = "Connected — signed in to Google.";
+      pushBtn.disabled = false; pullBtn.disabled = false;
+    } else {
+      statusEl.textContent = "Settings saved. Sign in to connect.";
+      pushBtn.disabled = true; pullBtn.disabled = true;
+    }
+  }
+
+  function ensureTokenClient(){
+    if(typeof google === "undefined" || !google.accounts || !google.accounts.oauth2){
+      toast("Google sign-in script hasn't loaded — check your connection");
+      return null;
+    }
+    if(!gTokenClient){
+      gTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: gcfg.clientId,
+        scope: "https://www.googleapis.com/auth/spreadsheets",
+        callback: function(resp){
+          if(resp && resp.access_token){
+            gAccessToken = resp.access_token;
+            updateCloudStatusUI();
+            toast("Signed in to Google");
+            pullFromSheet(true);
+            startPolling();
+          } else {
+            toast("Google sign-in failed");
+          }
+        }
+      });
+    }
+    return gTokenClient;
+  }
+
+  document.getElementById("googleSignInBtn").addEventListener("click", function(){
+    if(!gcfg.clientId || !gcfg.spreadsheetId){ toast("Save your Client ID and Spreadsheet ID first"); return; }
+    var tc = ensureTokenClient();
+    if(tc) tc.requestAccessToken({ prompt: "consent" });
+  });
+
+  var SHEET_COLUMNS = ["id","name","company","email","phone","status","project","meetingDate","tags","description","followUps"];
+  var SHEET_HEADERS = ["ID","Name","Company","Email","Phone","Status","Project","Date of Meeting","Tags","Description","Follow Up"];
+
+  function sheetsUrl(path){
+    return "https://sheets.googleapis.com/v4/spreadsheets/" + encodeURIComponent(gcfg.spreadsheetId) + path;
+  }
+
+  function pushToSheet(silent){
+  if(!gAccessToken){
+    if(!silent) toast("Sign in first");
+    return Promise.resolve();
+  }
+
+  var values = [SHEET_HEADERS];
+
+  contacts.forEach(function(c){
+    values.push(SHEET_COLUMNS.map(function(k){
+      if(k === "followUps") return formatFollowUps(c.followUps);
+      return c[k] == null ? "" : String(c[k]);
+    }));
+  });
+
+  var range = gcfg.sheetName + "!A1:K" + Math.max(values.length, 2);
+
+  return fetch(
+    sheetsUrl(
+      "/values/" +
+      encodeURIComponent(gcfg.sheetName + "!A2:K10000") +
+      ":clear"
+    ),
+    {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + gAccessToken
+      }
+    }
+  )
+  .then(async function(res){
+
+    if(!res.ok){
+      var errorText = await res.text();
+      throw new Error(
+        "Clear failed: HTTP " +
+        res.status +
+        " — " +
+        errorText
+      );
+    }
+
+    return fetch(
+      sheetsUrl(
+        "/values/" +
+        encodeURIComponent(range) +
+        "?valueInputOption=RAW"
+      ),
+      {
+        method: "PUT",
+        headers: {
+          "Authorization": "Bearer " + gAccessToken,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          range: range,
+          majorDimension: "ROWS",
+          values: values
+        })
+      }
+    );
+  })
+  .then(async function(res){
+
+    if(!res.ok){
+      var errorText = await res.text();
+
+      throw new Error(
+        "Push failed: HTTP " +
+        res.status +
+        " — " +
+        errorText
+      );
+    }
+
+    return res.json();
+  })
+  .then(function(){
+
+    if(!silent){
+      toast("Pushed to Google Sheet");
+    }
+
+    document.getElementById("saveStatus").textContent =
+      "Synced to Google Sheet · " +
+      new Date().toLocaleTimeString();
+
+  })
+  .catch(function(err){
+
+    console.error("GOOGLE SHEETS ERROR:", err);
+
+    if(!silent){
+      toast(err.message);
+    }
+  });
+}
+
+  function pullFromSheet(silent){
+    if(!gAccessToken){ if(!silent) toast("Sign in first"); return Promise.resolve(); }
+    var range = gcfg.sheetName + "!A1:K10000";
+    return fetch(sheetsUrl("/values/" + encodeURIComponent(range)), {
+      headers: { "Authorization": "Bearer " + gAccessToken }
+    }).then(function(res){
+      if(!res.ok) throw new Error("pull failed: " + res.status);
+      return res.json();
+    }).then(function(data){
+      var rows = data.values || [];
+      if(rows.length < 1) return; // sheet is empty — nothing to pull yet
+      var body = rows.slice(1);
+      var pulled = body.filter(function(r){ return r && r[1]; }).map(function(r){
+        var obj = {};
+        SHEET_COLUMNS.forEach(function(k, idx){ obj[k] = r[idx] || ""; });
+        obj.followUps = parseFollowUpsString(obj.followUps);
+        if(!obj.id) obj.id = uid();
+        return obj;
+      });
+      var pulledJSON = JSON.stringify(pulled);
+      if(pulledJSON !== JSON.stringify(contacts)){
+        contacts = pulled;
+        try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(contacts)); }catch(e){}
+        if(!drawer.classList.contains("open")) render();
+        if(!silent) toast("Pulled latest from Google Sheet");
+      }
+    }).catch(function(err){
+      console.error(err);
+      if(!silent) toast("Couldn't pull — check sign-in and Sheet access");
+    });
+  }
+
+  document.getElementById("pushSheetBtn").addEventListener("click", function(){ pushToSheet(false); });
+  document.getElementById("pullSheetBtn").addEventListener("click", function(){
+    if(confirm("Pull will replace what you see locally with the Sheet's current data. Continue?")) pullFromSheet(false);
+  });
+
+  function startPolling(){
+    if(pollTimer) return;
+    pollTimer = setInterval(function(){ pullFromSheet(true); }, 30000);
+  }
+
+  // ---------- init ----------
+  load();
+  render();
+  loadGCFG();
+  if(gcfg.clientId && gcfg.spreadsheetId){
+    setTimeout(function(){
+      var tc = ensureTokenClient();
+      if(tc){ try{ tc.requestAccessToken({ prompt: "" }); }catch(e){} }
+    }, 700);
+  }
+})();
+</script>
+</body>
+</html>
