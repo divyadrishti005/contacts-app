@@ -193,15 +193,6 @@
   .fu-badge.mail{ background:#FBF1DC; color:var(--accent-ink); }
   .followup-cell{ font-size:12.5px; }
 
-  /* ---------- quick follow-up modal ---------- */
-  .fu-quick-modal{
-    position:fixed; top:50%; left:50%; transform:translate(-50%,-48%) scale(.97);
-    width:400px; max-width:92vw; background:var(--paper-raised); border:1px solid var(--line);
-    border-radius:10px; box-shadow:var(--shadow); z-index:51; opacity:0; pointer-events:none;
-    transition:all .18s ease; max-height:80vh; display:flex; flex-direction:column;
-  }
-  .fu-quick-modal.open{ opacity:1; pointer-events:auto; transform:translate(-50%,-50%) scale(1); }
-
   /* ---------- import panel ---------- */
   .io-menu{ position:relative; }
   .io-dropdown{
@@ -383,30 +374,6 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- ================= QUICK FOLLOW-UP MODAL ================= -->
-<div class="overlay" id="fuOverlay"></div>
-<div class="fu-quick-modal" id="fuQuickModal">
-  <div class="drawer-head">
-    <h3>Follow-up — <span id="fuModalName"></span></h3>
-    <button class="btn-ghost btn-sm" id="fuModalClose">✕</button>
-  </div>
-  <div class="drawer-body">
-    <div class="field">
-      <label>Log a new follow-up</label>
-      <div class="followup-add-row">
-        <label class="checkbox-inline"><input type="checkbox" id="fuq_call_check"> Call</label>
-        <label class="checkbox-inline"><input type="checkbox" id="fuq_mail_check"> Mail</label>
-        <input type="date" id="fuq_date">
-        <button type="button" class="btn btn-sm" id="fuq_addBtn">+ Log</button>
-      </div>
-    </div>
-    <div class="field">
-      <label>History</label>
-      <div id="fuq_list" class="fu-list"></div>
-    </div>
-  </div>
-</div>
-
 <!-- ================= DRAWER (cloud sync) ================= -->
 <div class="overlay" id="cloudOverlay"></div>
 <div class="drawer" id="cloudDrawer">
@@ -576,7 +543,6 @@
           '<td class="muted">'+esc(c.meetingDate||"—")+'</td>'+
           '<td class="muted followup-cell">'+summarizeFollowUpsShort(c.followUps)+'</td>'+
           '<td><div class="row-actions">'+
-            '<button class="btn-ghost btn-sm" data-followup="'+c.id+'">Follow-up</button>'+
             '<button class="btn-ghost btn-sm" data-edit="'+c.id+'">Edit</button>'+
             '<button class="btn-ghost btn-sm btn-danger-text" data-del="'+c.id+'">Delete</button>'+
           '</div></td>';
@@ -698,69 +664,6 @@
     }
   });
 
-  // ---------- quick follow-up modal ----------
-  var fuOverlay = document.getElementById("fuOverlay");
-  var fuQuickModal = document.getElementById("fuQuickModal");
-  state.fuContactId = null;
-
-  function openFollowUpModal(contact){
-    state.fuContactId = contact.id;
-    document.getElementById("fuModalName").textContent = contact.name;
-    document.getElementById("fuq_call_check").checked = false;
-    document.getElementById("fuq_mail_check").checked = false;
-    document.getElementById("fuq_date").value = new Date().toISOString().slice(0,10);
-    renderFuQuickList();
-    fuOverlay.classList.add("open");
-    fuQuickModal.classList.add("open");
-  }
-  function closeFollowUpModal(){
-    fuOverlay.classList.remove("open");
-    fuQuickModal.classList.remove("open");
-    state.fuContactId = null;
-  }
-  function renderFuQuickList(){
-    var wrap = document.getElementById("fuq_list");
-    var c = contacts.find(function(x){ return x.id === state.fuContactId; });
-    if(!c || !c.followUps || !c.followUps.length){
-      wrap.innerHTML = '<div class="muted" style="font-size:12px;">No follow-ups logged yet.</div>';
-      return;
-    }
-    var sorted = c.followUps.slice().sort(function(a,b){ return a.date<b.date?1:a.date>b.date?-1:0; });
-    wrap.innerHTML = sorted.map(function(f){
-      var cls = f.type === "Call" ? "call" : "mail";
-      return '<div class="fu-entry"><span><span class="fu-badge '+cls+'">'+esc(f.type)+'</span> '+esc(f.date||"—")+'</span>'+
-        '<button type="button" class="fu-remove" data-fuq-remove="'+f.id+'">✕</button></div>';
-    }).join("");
-  }
-
-  document.getElementById("fuq_addBtn").addEventListener("click", function(){
-    var c = contacts.find(function(x){ return x.id === state.fuContactId; });
-    if(!c) return;
-    var call = document.getElementById("fuq_call_check").checked;
-    var mail = document.getElementById("fuq_mail_check").checked;
-    var date = document.getElementById("fuq_date").value || new Date().toISOString().slice(0,10);
-    if(!call && !mail){ toast("Check Call or Mail to log a follow-up"); return; }
-    if(!c.followUps) c.followUps = [];
-    if(call) c.followUps.push({ id: uid(), type:"Call", date: date });
-    if(mail) c.followUps.push({ id: uid(), type:"Mail", date: date });
-    document.getElementById("fuq_call_check").checked = false;
-    document.getElementById("fuq_mail_check").checked = false;
-    save(); render(); renderFuQuickList();
-    toast("Follow-up logged");
-  });
-
-  document.getElementById("fuq_list").addEventListener("click", function(e){
-    var id = e.target.getAttribute("data-fuq-remove");
-    if(!id) return;
-    var c = contacts.find(function(x){ return x.id === state.fuContactId; });
-    if(!c) return;
-    c.followUps = (c.followUps||[]).filter(function(f){ return f.id !== id; });
-    save(); render(); renderFuQuickList();
-  });
-
-  document.getElementById("fuModalClose").addEventListener("click", closeFollowUpModal);
-  fuOverlay.addEventListener("click", closeFollowUpModal);
-
   document.getElementById("addBtn").addEventListener("click", function(){ openDrawer(null); });
   document.getElementById("emptyAddBtn").addEventListener("click", function(){ openDrawer(null); });
   document.getElementById("closeDrawer").addEventListener("click", closeDrawer);
@@ -806,12 +709,7 @@
   document.getElementById("tableBody").addEventListener("click", function(e){
     var editId = e.target.getAttribute("data-edit");
     var delId = e.target.getAttribute("data-del");
-    var fuId = e.target.getAttribute("data-followup");
-    if(fuId){
-      var fc = contacts.find(function(x){ return x.id === fuId; });
-      if(fc) openFollowUpModal(fc);
-      return;
-    } else if(editId){
+    if(editId){
       var c = contacts.find(function(x){ return x.id === editId; });
       if(c) openDrawer(c);
       return;
@@ -1187,33 +1085,102 @@
   }
 
   function pushToSheet(silent){
-    if(!gAccessToken){ if(!silent) toast("Sign in first"); return Promise.resolve(); }
-    var values = [SHEET_HEADERS];
-    contacts.forEach(function(c){
-      values.push(SHEET_COLUMNS.map(function(k){
-        if(k === "followUps") return formatFollowUps(c.followUps);
-        return c[k]==null ? "" : String(c[k]);
-      }));
-    });
-    var range = gcfg.sheetName + "!A1:K" + Math.max(values.length, 2);
-    return fetch(sheetsUrl("/values/" + encodeURIComponent(gcfg.sheetName + "!A2:K10000") + ":clear"), {
-      method: "POST",
-      headers: { "Authorization": "Bearer " + gAccessToken }
-    }).then(function(){
-      return fetch(sheetsUrl("/values/" + encodeURIComponent(range) + "?valueInputOption=RAW"), {
-        method: "PUT",
-        headers: { "Authorization": "Bearer " + gAccessToken, "Content-Type": "application/json" },
-        body: JSON.stringify({ range: range, majorDimension: "ROWS", values: values })
-      });
-    }).then(function(res){
-      if(!res.ok) throw new Error("push failed: " + res.status);
-      if(!silent) toast("Pushed to Google Sheet");
-      document.getElementById("saveStatus").textContent = "Synced to Google Sheet · " + new Date().toLocaleTimeString();
-    }).catch(function(err){
-      console.error(err);
-      if(!silent) toast("Couldn't push — check sign-in and Sheet access");
-    });
+  if(!gAccessToken){
+    if(!silent) toast("Sign in first");
+    return Promise.resolve();
   }
+
+  var values = [SHEET_HEADERS];
+
+  contacts.forEach(function(c){
+    values.push(SHEET_COLUMNS.map(function(k){
+      if(k === "followUps") return formatFollowUps(c.followUps);
+      return c[k] == null ? "" : String(c[k]);
+    }));
+  });
+
+  var range = gcfg.sheetName + "!A1:K" + Math.max(values.length, 2);
+
+  return fetch(
+    sheetsUrl(
+      "/values/" +
+      encodeURIComponent(gcfg.sheetName + "!A2:K10000") +
+      ":clear"
+    ),
+    {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + gAccessToken
+      }
+    }
+  )
+  .then(async function(res){
+
+    if(!res.ok){
+      var errorText = await res.text();
+      throw new Error(
+        "Clear failed: HTTP " +
+        res.status +
+        " — " +
+        errorText
+      );
+    }
+
+    return fetch(
+      sheetsUrl(
+        "/values/" +
+        encodeURIComponent(range) +
+        "?valueInputOption=RAW"
+      ),
+      {
+        method: "PUT",
+        headers: {
+          "Authorization": "Bearer " + gAccessToken,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          range: range,
+          majorDimension: "ROWS",
+          values: values
+        })
+      }
+    );
+  })
+  .then(async function(res){
+
+    if(!res.ok){
+      var errorText = await res.text();
+
+      throw new Error(
+        "Push failed: HTTP " +
+        res.status +
+        " — " +
+        errorText
+      );
+    }
+
+    return res.json();
+  })
+  .then(function(){
+
+    if(!silent){
+      toast("Pushed to Google Sheet");
+    }
+
+    document.getElementById("saveStatus").textContent =
+      "Synced to Google Sheet · " +
+      new Date().toLocaleTimeString();
+
+  })
+  .catch(function(err){
+
+    console.error("GOOGLE SHEETS ERROR:", err);
+
+    if(!silent){
+      toast(err.message);
+    }
+  });
+}
 
   function pullFromSheet(silent){
     if(!gAccessToken){ if(!silent) toast("Sign in first"); return Promise.resolve(); }
