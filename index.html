@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ledger — Local CRM</title>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   :root{
     --ink:#22313F;
@@ -383,23 +382,21 @@
   </div>
   <div class="drawer-body">
     <p class="muted" style="font-size:12.5px;line-height:1.6;margin-top:0;">
-      Connect this CRM to a Google Sheet so everyone you share it with sees the same contacts.
-      The sheet needs a tab named <b>Contacts</b>. <a href="#" id="cloudHelpToggle">Setup steps ▾</a>
+      Sync contacts with a Google Sheet automatically — <b>no Google sign-in needed</b>. Paste the Web App URL from your Apps Script once. <a href="#" id="cloudHelpToggle">Setup steps ▾</a>
     </p>
     <div id="cloudHelp" style="display:none; font-size:12px; color:var(--ink-soft); background:#F7F6F0; border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:16px; line-height:1.7;">
-      1. In Google Sheets, create a spreadsheet and add a tab named exactly <b>Contacts</b>.<br>
-      2. Copy the Spreadsheet ID from its URL — the long id between <code>/d/</code> and <code>/edit</code>.<br>
-      3. In Google Cloud Console, enable the <b>Google Sheets API</b> and create an <b>OAuth Client ID</b> (Web application), adding this page's exact URL under Authorized JavaScript origins.<br>
-      4. Paste the Client ID and Spreadsheet ID below, save, then sign in. Share the Sheet (Editor access) with anyone who should sync.
+      1. Open your Google Sheet → <b>Extensions → Apps Script</b>.<br>
+      2. Delete the default code, paste the contents of <code>Code.gs</code>, and change <code>SECRET</code> to your own password.<br>
+      3. Click <b>Deploy → New deployment → Web app</b>. Execute as: <b>Me</b>. Who has access: <b>Anyone</b>. Deploy and authorize once.<br>
+      4. Copy the <b>Web app URL</b> and paste it below with the same secret. Save — done.
     </div>
-    <div class="field"><label>Google OAuth Client ID</label><input id="cfg_clientId" placeholder="xxxxxxxx.apps.googleusercontent.com"></div>
-    <div class="field"><label>Spreadsheet ID</label><input id="cfg_sheetId" placeholder="from the sheet's URL"></div>
-    <button class="btn btn-sm" id="saveCloudConfig">Save settings</button>
+    <div class="field"><label>Web App URL</label><input id="cfg_url" placeholder="https://script.google.com/macros/s/.../exec"></div>
+    <div class="field"><label>Secret key</label><input id="cfg_secret" type="password" placeholder="same SECRET as in Code.gs"></div>
+    <button class="btn btn-primary btn-sm" id="saveCloudConfig">Save &amp; connect</button>
 
     <div style="margin-top:22px;padding-top:18px;border-top:1px solid var(--line);">
       <div id="cloudStatus" class="muted" style="font-size:12.5px;margin-bottom:12px;">Not connected</div>
-      <button class="btn btn-primary btn-sm" id="googleSignInBtn">Sign in with Google</button>
-      <div style="display:flex;gap:8px;margin-top:10px;">
+      <div style="display:flex;gap:8px;">
         <button class="btn btn-sm" id="pushSheetBtn" disabled>⬆ Push to Sheet</button>
         <button class="btn btn-sm" id="pullSheetBtn" disabled>⬇ Pull from Sheet</button>
       </div>
@@ -444,7 +441,7 @@
     }catch(e){
       document.getElementById("saveStatus").textContent = "Could not save (storage full or blocked)";
     }
-    if(typeof gAccessToken !== "undefined" && gAccessToken) pushToSheet(true);
+    if(typeof gcfg !== "undefined" && gcfg.url) schedulePush();
   }
 
   function seedData(){
@@ -980,37 +977,27 @@
     return out;
   }
 
-  // ---------- cloud sync (Google Sheets) ----------
-  var GCFG_KEY = "ledger_crm_gcfg_v1";
-  var gcfg = { clientId:"", spreadsheetId:"", sheetName:"Contacts" };
-  var gAccessToken = null;
-  var gTokenClient = null;
-  var pollTimer = null;
+  // ---------- cloud sync (Google Sheets via Apps Script — no login) ----------
+  var GCFG_KEY = "ledger_crm_gcfg_v2";
+  var gcfg = { url:"", secret:"" };
+  var pollTimer = null, pushTimer = null, gOk = false;
 
   function loadGCFG(){
-    try{
-      var raw = localStorage.getItem(GCFG_KEY);
-      if(raw) gcfg = Object.assign(gcfg, JSON.parse(raw));
-    }catch(e){}
+    try{ var raw = localStorage.getItem(GCFG_KEY); if(raw) gcfg = Object.assign(gcfg, JSON.parse(raw)); }catch(e){}
   }
-  function saveGCFG(){
-    try{ localStorage.setItem(GCFG_KEY, JSON.stringify(gcfg)); }catch(e){}
-  }
+  function saveGCFG(){ try{ localStorage.setItem(GCFG_KEY, JSON.stringify(gcfg)); }catch(e){} }
 
   var cloudOverlay = document.getElementById("cloudOverlay");
   var cloudDrawer = document.getElementById("cloudDrawer");
 
   document.getElementById("cloudBtn").addEventListener("click", function(){
-    document.getElementById("cfg_clientId").value = gcfg.clientId;
-    document.getElementById("cfg_sheetId").value = gcfg.spreadsheetId;
+    document.getElementById("cfg_url").value = gcfg.url;
+    document.getElementById("cfg_secret").value = gcfg.secret;
     updateCloudStatusUI();
     cloudOverlay.classList.add("open");
     cloudDrawer.classList.add("open");
   });
-  function closeCloudDrawer(){
-    cloudOverlay.classList.remove("open");
-    cloudDrawer.classList.remove("open");
-  }
+  function closeCloudDrawer(){ cloudOverlay.classList.remove("open"); cloudDrawer.classList.remove("open"); }
   document.getElementById("closeCloudDrawer").addEventListener("click", closeCloudDrawer);
   cloudOverlay.addEventListener("click", closeCloudDrawer);
   document.getElementById("cloudHelpToggle").addEventListener("click", function(e){
@@ -1019,122 +1006,56 @@
     h.style.display = h.style.display === "none" ? "block" : "none";
   });
 
-  document.getElementById("saveCloudConfig").addEventListener("click", function(){
-    gcfg.clientId = document.getElementById("cfg_clientId").value.trim();
-    gcfg.spreadsheetId = document.getElementById("cfg_sheetId").value.trim();
-    saveGCFG();
-    gTokenClient = null; // rebuild with the new client id next sign-in
-    toast("Sync settings saved");
-    updateCloudStatusUI();
-  });
-
-  function updateCloudStatusUI(){
+  function updateCloudStatusUI(msg){
     var statusEl = document.getElementById("cloudStatus");
-    var pushBtn = document.getElementById("pushSheetBtn");
-    var pullBtn = document.getElementById("pullSheetBtn");
-    if(!gcfg.clientId || !gcfg.spreadsheetId){
-      statusEl.textContent = "Add your Client ID and Spreadsheet ID, then save.";
-      pushBtn.disabled = true; pullBtn.disabled = true;
-      return;
-    }
-    if(gAccessToken){
-      statusEl.textContent = "Connected — signed in to Google.";
-      pushBtn.disabled = false; pullBtn.disabled = false;
-    } else {
-      statusEl.textContent = "Settings saved. Sign in to connect.";
-      pushBtn.disabled = true; pullBtn.disabled = true;
-    }
+    var on = !!gcfg.url;
+    document.getElementById("pushSheetBtn").disabled = !on;
+    document.getElementById("pullSheetBtn").disabled = !on;
+    statusEl.textContent = msg || (!on ? "Paste your Web App URL and secret, then save."
+      : gOk ? "Connected — syncing automatically." : "Settings saved.");
   }
 
-  function ensureTokenClient(){
-    if(typeof google === "undefined" || !google.accounts || !google.accounts.oauth2){
-      toast("Google sign-in script hasn't loaded — check your connection");
-      return null;
-    }
-    if(!gTokenClient){
-      gTokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: gcfg.clientId,
-        scope: "https://www.googleapis.com/auth/spreadsheets",
-        error_callback: function(e){ console.error(e); toast("Google sign-in problem — " + ((e && (e.type||e.message)) || "popup blocked?")); },
-        callback: function(resp){
-          if(resp && resp.access_token){
-            gAccessToken = resp.access_token;
-            updateCloudStatusUI();
-            toast("Signed in to Google");
-            pullFromSheet(true);
-            startPolling();
-          } else {
-            console.error("Google sign-in error:", resp);
-            toast("Google sign-in failed" + (resp && resp.error ? " — " + resp.error : ""));
-          }
-        }
-      });
-    }
-    return gTokenClient;
-  }
-
-  document.getElementById("googleSignInBtn").addEventListener("click", function(){
-    if(!gcfg.clientId || !gcfg.spreadsheetId){ toast("Save your Client ID and Spreadsheet ID first"); return; }
-    var tc = ensureTokenClient();
-    if(tc) tc.requestAccessToken({ prompt: "consent" });
+  document.getElementById("saveCloudConfig").addEventListener("click", function(){
+    gcfg.url = document.getElementById("cfg_url").value.trim();
+    gcfg.secret = document.getElementById("cfg_secret").value.trim();
+    saveGCFG();
+    gOk = false;
+    if(!gcfg.url){ updateCloudStatusUI(); return; }
+    updateCloudStatusUI("Connecting…");
+    pullFromSheet(false).then(function(){ startPolling(); });
   });
 
   var SHEET_COLUMNS = ["id","name","company","email","phone","status","project","meetingDate","tags","description","followUps"];
   var SHEET_HEADERS = ["ID","Name","Company","Email","Phone","Status","Project","Date of Meeting","Tags","Description","Follow Up"];
 
-  function sheetsUrl(path){
-    return "https://sheets.googleapis.com/v4/spreadsheets/" + encodeURIComponent(gcfg.spreadsheetId) + path;
-  }
-
-  // Read the real error message from a Google API response
-  function apiError(res){
-    return res.text().then(function(t){
-      var msg = t;
-      try{ var j = JSON.parse(t); if(j.error && j.error.message) msg = j.error.message; }catch(e){}
-      var err = new Error(res.status + ": " + msg);
-      err.status = res.status;
-      throw err;
-    });
-  }
-
-  function gFetch(url, opts){
-    opts = opts || {};
-    opts.headers = Object.assign({}, opts.headers, { "Authorization": "Bearer " + gAccessToken });
-    return fetch(url, opts).then(function(res){
-      if(res.status === 401){
-        // token expired (they last ~1 hour) -> force re-login
-        gAccessToken = null; updateCloudStatusUI();
-        var e = new Error("401: Google session expired — click Sign in with Google again");
-        e.status = 401; throw e;
-      }
-      return res.ok ? res : apiError(res);
-    });
-  }
-
   function explainError(err){
     var m = (err && err.message) || "unknown error";
-    if(/has not been used|is disabled|SERVICE_DISABLED/i.test(m)) return "Google Sheets API is not enabled in your Cloud project";
-    if(/403/.test(m)) return "No edit access — share the Sheet (Editor) with the Google account you signed in with";
-    if(/404/.test(m)) return "Spreadsheet not found — check the Spreadsheet ID";
+    if(/Failed to fetch|NetworkError/i.test(m)) return "can't reach the Web App URL — is it deployed with access set to 'Anyone'?";
+    if(/unauthorized/i.test(m)) return "secret key doesn't match the one in Code.gs";
     return m;
   }
 
-  // Make sure a tab named gcfg.sheetName exists; create it if missing
-  function ensureSheetTab(){
-    return gFetch(sheetsUrl("?fields=sheets.properties.title")).then(function(r){ return r.json(); })
-    .then(function(data){
-      var titles = (data.sheets || []).map(function(s){ return s.properties.title; });
-      if(titles.indexOf(gcfg.sheetName) !== -1) return;
-      return gFetch(sheetsUrl(":batchUpdate"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requests: [{ addSheet: { properties: { title: gcfg.sheetName } } }] })
-      });
+  function callScript(payload){
+    var opts = payload
+      ? { method:"POST", body: JSON.stringify(Object.assign({ secret: gcfg.secret }, payload)) } // text/plain: no CORS preflight
+      : { method:"GET" };
+    var url = payload ? gcfg.url : gcfg.url + (gcfg.url.indexOf("?")>-1?"&":"?") + "secret=" + encodeURIComponent(gcfg.secret);
+    return fetch(url, opts).then(function(res){ return res.text(); }).then(function(t){
+      var j;
+      try{ j = JSON.parse(t); }
+      catch(e){ throw new Error("Web App didn't return JSON — redeploy it with access set to 'Anyone'"); }
+      if(!j.ok) throw new Error(j.error || "script error");
+      return j;
     });
   }
 
+  function schedulePush(){
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(function(){ pushToSheet(true); }, 800); // debounce rapid edits
+  }
+
   function pushToSheet(silent){
-    if(!gAccessToken){ if(!silent) toast("Sign in first"); return Promise.resolve(); }
+    if(!gcfg.url){ if(!silent) toast("Add your Web App URL first"); return Promise.resolve(); }
     var values = [SHEET_HEADERS];
     contacts.forEach(function(c){
       values.push(SHEET_COLUMNS.map(function(k){
@@ -1142,60 +1063,40 @@
         return c[k]==null ? "" : String(c[k]);
       }));
     });
-    var tab = "'" + gcfg.sheetName + "'";
-    var range = tab + "!A1:K" + Math.max(values.length, 2);
-    return ensureSheetTab().then(function(){
-      return gFetch(sheetsUrl("/values/" + encodeURIComponent(tab + "!A1:K10000") + ":clear"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}"
-      });
-    }).then(function(){
-      return gFetch(sheetsUrl("/values/" + encodeURIComponent(range) + "?valueInputOption=RAW"), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ range: range, majorDimension: "ROWS", values: values })
-      });
-    }).then(function(){
+    return callScript({ action:"write", values: values }).then(function(){
+      gOk = true; updateCloudStatusUI();
       if(!silent) toast("Pushed to Google Sheet");
       document.getElementById("saveStatus").textContent = "Synced to Google Sheet · " + new Date().toLocaleTimeString();
     }).catch(function(err){
       console.error("Sheet push error:", err);
+      gOk = false; updateCloudStatusUI("Sync failed — " + explainError(err));
       if(!silent) toast("Couldn't push — " + explainError(err));
-      else document.getElementById("saveStatus").textContent = "Sheet sync failed — " + explainError(err);
     });
   }
 
   function pullFromSheet(silent){
-    if(!gAccessToken){ if(!silent) toast("Sign in first"); return Promise.resolve(); }
-    var range = "'" + gcfg.sheetName + "'!A1:K10000";
-    return ensureSheetTab().then(function(){
-      return gFetch(sheetsUrl("/values/" + encodeURIComponent(range)));
-    }).then(function(res){ return res.json(); })
-    .then(function(data){
+    if(!gcfg.url){ if(!silent) toast("Add your Web App URL first"); return Promise.resolve(); }
+    return callScript(null).then(function(data){
+      gOk = true; updateCloudStatusUI();
       var rows = data.values || [];
-      var body = rows.slice(1);
-      var pulled = body.filter(function(r){ return r && r[1]; }).map(function(r){
+      var pulled = rows.slice(1).filter(function(r){ return r && r[1]; }).map(function(r){
         var obj = {};
-        SHEET_COLUMNS.forEach(function(k, idx){ obj[k] = r[idx] || ""; });
+        SHEET_COLUMNS.forEach(function(k, idx){ obj[k] = r[idx] == null ? "" : String(r[idx]); });
         obj.followUps = parseFollowUpsString(obj.followUps);
         if(!obj.id) obj.id = uid();
         return obj;
       });
-      // Sheet has no contact rows yet: never wipe local data, upload it instead
-      if(pulled.length === 0){
-        if(contacts.length) return pushToSheet(true);
-        return;
-      }
-      var pulledJSON = JSON.stringify(pulled);
-      if(pulledJSON !== JSON.stringify(contacts)){
+      // empty sheet: never wipe local data — upload it instead
+      if(pulled.length === 0){ if(contacts.length) return pushToSheet(true); return; }
+      if(JSON.stringify(pulled) !== JSON.stringify(contacts)){
         contacts = pulled;
         try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(contacts)); }catch(e){}
         if(!drawer.classList.contains("open")) render();
         if(!silent) toast("Pulled latest from Google Sheet");
-      }
+      } else if(!silent) toast("Already up to date");
     }).catch(function(err){
       console.error("Sheet pull error:", err);
+      gOk = false; updateCloudStatusUI("Sync failed — " + explainError(err));
       if(!silent) toast("Couldn't pull — " + explainError(err));
     });
   }
@@ -1207,19 +1108,14 @@
 
   function startPolling(){
     if(pollTimer) return;
-    pollTimer = setInterval(function(){ pullFromSheet(true); }, 30000);
+    pollTimer = setInterval(function(){ if(!pushTimer) pullFromSheet(true); }, 30000);
   }
 
   // ---------- init ----------
   load();
   render();
   loadGCFG();
-  if(gcfg.clientId && gcfg.spreadsheetId){
-    setTimeout(function(){
-      var tc = ensureTokenClient();
-      if(tc){ try{ tc.requestAccessToken({ prompt: "" }); }catch(e){} }
-    }, 700);
-  }
+  if(gcfg.url){ pullFromSheet(true).then(startPolling); }
 })();
 </script>
 </body>
