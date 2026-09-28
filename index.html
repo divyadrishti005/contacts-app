@@ -1055,6 +1055,7 @@
       gTokenClient = google.accounts.oauth2.initTokenClient({
         client_id: gcfg.clientId,
         scope: "https://www.googleapis.com/auth/spreadsheets",
+        error_callback: function(e){ console.error(e); toast("Google sign-in problem — " + ((e && (e.type||e.message)) || "popup blocked?")); },
         callback: function(resp){
           if(resp && resp.access_token){
             gAccessToken = resp.access_token;
@@ -1063,7 +1064,8 @@
             pullFromSheet(true);
             startPolling();
           } else {
-            toast("Google sign-in failed");
+            console.error("Google sign-in error:", resp);
+            toast("Google sign-in failed" + (resp && resp.error ? " — " + resp.error : ""));
           }
         }
       });
@@ -1084,115 +1086,94 @@
     return "https://sheets.googleapis.com/v4/spreadsheets/" + encodeURIComponent(gcfg.spreadsheetId) + path;
   }
 
-  function pushToSheet(silent){
-  if(!gAccessToken){
-    if(!silent) toast("Sign in first");
-    return Promise.resolve();
+  // Read the real error message from a Google API response
+  function apiError(res){
+    return res.text().then(function(t){
+      var msg = t;
+      try{ var j = JSON.parse(t); if(j.error && j.error.message) msg = j.error.message; }catch(e){}
+      var err = new Error(res.status + ": " + msg);
+      err.status = res.status;
+      throw err;
+    });
   }
 
-  var values = [SHEET_HEADERS];
-
-  contacts.forEach(function(c){
-    values.push(SHEET_COLUMNS.map(function(k){
-      if(k === "followUps") return formatFollowUps(c.followUps);
-      return c[k] == null ? "" : String(c[k]);
-    }));
-  });
-
-  var range = gcfg.sheetName + "!A1:K" + Math.max(values.length, 2);
-
-  return fetch(
-    sheetsUrl(
-      "/values/" +
-      encodeURIComponent(gcfg.sheetName + "!A2:K10000") +
-      ":clear"
-    ),
-    {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + gAccessToken
+  function gFetch(url, opts){
+    opts = opts || {};
+    opts.headers = Object.assign({}, opts.headers, { "Authorization": "Bearer " + gAccessToken });
+    return fetch(url, opts).then(function(res){
+      if(res.status === 401){
+        // token expired (they last ~1 hour) -> force re-login
+        gAccessToken = null; updateCloudStatusUI();
+        var e = new Error("401: Google session expired — click Sign in with Google again");
+        e.status = 401; throw e;
       }
-    }
-  )
-  .then(async function(res){
+      return res.ok ? res : apiError(res);
+    });
+  }
 
-    if(!res.ok){
-      var errorText = await res.text();
-      throw new Error(
-        "Clear failed: HTTP " +
-        res.status +
-        " — " +
-        errorText
-      );
-    }
+  function explainError(err){
+    var m = (err && err.message) || "unknown error";
+    if(/has not been used|is disabled|SERVICE_DISABLED/i.test(m)) return "Google Sheets API is not enabled in your Cloud project";
+    if(/403/.test(m)) return "No edit access — share the Sheet (Editor) with the Google account you signed in with";
+    if(/404/.test(m)) return "Spreadsheet not found — check the Spreadsheet ID";
+    return m;
+  }
 
-    return fetch(
-      sheetsUrl(
-        "/values/" +
-        encodeURIComponent(range) +
-        "?valueInputOption=RAW"
-      ),
-      {
+  // Make sure a tab named gcfg.sheetName exists; create it if missing
+  function ensureSheetTab(){
+    return gFetch(sheetsUrl("?fields=sheets.properties.title")).then(function(r){ return r.json(); })
+    .then(function(data){
+      var titles = (data.sheets || []).map(function(s){ return s.properties.title; });
+      if(titles.indexOf(gcfg.sheetName) !== -1) return;
+      return gFetch(sheetsUrl(":batchUpdate"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requests: [{ addSheet: { properties: { title: gcfg.sheetName } } }] })
+      });
+    });
+  }
+
+  function pushToSheet(silent){
+    if(!gAccessToken){ if(!silent) toast("Sign in first"); return Promise.resolve(); }
+    var values = [SHEET_HEADERS];
+    contacts.forEach(function(c){
+      values.push(SHEET_COLUMNS.map(function(k){
+        if(k === "followUps") return formatFollowUps(c.followUps);
+        return c[k]==null ? "" : String(c[k]);
+      }));
+    });
+    var tab = "'" + gcfg.sheetName + "'";
+    var range = tab + "!A1:K" + Math.max(values.length, 2);
+    return ensureSheetTab().then(function(){
+      return gFetch(sheetsUrl("/values/" + encodeURIComponent(tab + "!A1:K10000") + ":clear"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}"
+      });
+    }).then(function(){
+      return gFetch(sheetsUrl("/values/" + encodeURIComponent(range) + "?valueInputOption=RAW"), {
         method: "PUT",
-        headers: {
-          "Authorization": "Bearer " + gAccessToken,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          range: range,
-          majorDimension: "ROWS",
-          values: values
-        })
-      }
-    );
-  })
-  .then(async function(res){
-
-    if(!res.ok){
-      var errorText = await res.text();
-
-      throw new Error(
-        "Push failed: HTTP " +
-        res.status +
-        " — " +
-        errorText
-      );
-    }
-
-    return res.json();
-  })
-  .then(function(){
-
-    if(!silent){
-      toast("Pushed to Google Sheet");
-    }
-
-    document.getElementById("saveStatus").textContent =
-      "Synced to Google Sheet · " +
-      new Date().toLocaleTimeString();
-
-  })
-  .catch(function(err){
-
-    console.error("GOOGLE SHEETS ERROR:", err);
-
-    if(!silent){
-      toast(err.message);
-    }
-  });
-}
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ range: range, majorDimension: "ROWS", values: values })
+      });
+    }).then(function(){
+      if(!silent) toast("Pushed to Google Sheet");
+      document.getElementById("saveStatus").textContent = "Synced to Google Sheet · " + new Date().toLocaleTimeString();
+    }).catch(function(err){
+      console.error("Sheet push error:", err);
+      if(!silent) toast("Couldn't push — " + explainError(err));
+      else document.getElementById("saveStatus").textContent = "Sheet sync failed — " + explainError(err);
+    });
+  }
 
   function pullFromSheet(silent){
     if(!gAccessToken){ if(!silent) toast("Sign in first"); return Promise.resolve(); }
-    var range = gcfg.sheetName + "!A1:K10000";
-    return fetch(sheetsUrl("/values/" + encodeURIComponent(range)), {
-      headers: { "Authorization": "Bearer " + gAccessToken }
-    }).then(function(res){
-      if(!res.ok) throw new Error("pull failed: " + res.status);
-      return res.json();
-    }).then(function(data){
+    var range = "'" + gcfg.sheetName + "'!A1:K10000";
+    return ensureSheetTab().then(function(){
+      return gFetch(sheetsUrl("/values/" + encodeURIComponent(range)));
+    }).then(function(res){ return res.json(); })
+    .then(function(data){
       var rows = data.values || [];
-      if(rows.length < 1) return; // sheet is empty — nothing to pull yet
       var body = rows.slice(1);
       var pulled = body.filter(function(r){ return r && r[1]; }).map(function(r){
         var obj = {};
@@ -1201,6 +1182,11 @@
         if(!obj.id) obj.id = uid();
         return obj;
       });
+      // Sheet has no contact rows yet: never wipe local data, upload it instead
+      if(pulled.length === 0){
+        if(contacts.length) return pushToSheet(true);
+        return;
+      }
       var pulledJSON = JSON.stringify(pulled);
       if(pulledJSON !== JSON.stringify(contacts)){
         contacts = pulled;
@@ -1209,8 +1195,8 @@
         if(!silent) toast("Pulled latest from Google Sheet");
       }
     }).catch(function(err){
-      console.error(err);
-      if(!silent) toast("Couldn't pull — check sign-in and Sheet access");
+      console.error("Sheet pull error:", err);
+      if(!silent) toast("Couldn't pull — " + explainError(err));
     });
   }
 
